@@ -1,5 +1,6 @@
-%% Google Cloud Messaging for Ejabberd
+%% Apple Push Notification Service for Ejabberd
 %% Created: 07/09/2015 by mrDoctorWho
+%% Forked: 11/02/2016 by joanlopez
 %% License: MIT/X11
 
 -module(mod_apns).
@@ -124,27 +125,45 @@ message(From, To, Packet) ->
 iq(#jid{user = User, server = Server} = From, To, #iq{type = Type, sub_el = SubEl} = IQ) ->
 	LUser = jlib:nodeprep(User),
 	LServer = jlib:nameprep(Server),
+	JUser = jlib:jid_to_string(From#jid{user = From#jid.user, server = From#jid.server, resource = <<"">>}),
 
 	{MegaSecs, Secs, _MicroSecs} = now(),
 	TimeStamp = MegaSecs * 1000000 + Secs,
 
 	Token = xml:get_tag_cdata(xml:get_subtag(SubEl, <<"token">>)),
 
-	F = fun() -> mnesia:write(#apns_users{user={LUser, LServer}, token=Token, last_seen=TimeStamp}) end,
+	%% INSERT CASE
+	F = fun() ->  ejabberd_odbc:sql_query(LServer,
+			    [<<"insert into apns_users(user, token, last_seen) "
+			       "values ('">>,
+			     JUser, <<"', '">>, Token, <<"', '">>, integer_to_list(TimeStamp), <<"');">>])
+	end,
 
-	case mnesia:dirty_read(apns_users, {LUser, LServer}) of
+	%% UPDATE CASE
+	F2 = fun() ->	odbc_queries:update_t(<<"apns_users">>,
+					   	[<<"last_seen">>],
+				   		[integer_to_list(TimeStamp)],
+					   [<<"user='">>, JUser,
+					    <<"'">>])
+  	end,
+
+  	case ejabberd_odbc:sql_query(LServer,
+								[<<"select token from apns_users where "
+									"user='">>,
+									JUser, <<"';">>])
+									of
 		[] ->
-			mnesia:transaction(F),
+			ejabberd_odbc:sql_transaction(LServer, F),
 			?DEBUG("mod_apns: New user registered ~s@~s", [LUser, LServer]);
 
 		%% Record exists, the key is equal to the one we know
-		[#apns_users{user={LUser, LServer}, token=Token}] ->
-			mnesia:transaction(F),
+		{selected, [<<"token">>], [[TOKEN]]} ->
+			ejabberd_odbc:sql_transaction(LServer, F2),
 			?DEBUG("mod_apns: Updating last_seen for user ~s@~s", [LUser, LServer]);
 
 		%% Record for this key has been found, but for another key
-		[#apns_users{user={LUser, LServer}, token=Token}] ->
-			mnesia:transaction(F),
+		{selected, [<<"token">>], []} ->
+			ejabberd_odbc:sql_transaction(LServer, F),
 			?DEBUG("mod_apns: Updating token for user ~s@~s", [LUser, LServer])
 		end,
 	
