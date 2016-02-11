@@ -102,12 +102,12 @@ message(From, To, Packet) ->
 					case Body of
 						<<>> -> ok;
 						_ ->
-							Result = mnesia:dirty_read(apns_users, {ToUser, ToServer}),
-							case Result of 
-								[] ->
-									?DEBUG("mod_apns: No such record found for ~s", [JTo]);
-
-								[#apns_users{token = Token}] ->
+							case ejabberd_odbc:sql_query(LServer,
+														[<<"select token from apns_users where "
+															"user='">>,
+															JTo, <<"';">>])
+									of
+								{selected, [<<"token">>], [[Token]]} -> 
 									Sound = "default",
 									%% TODO: Move binary_to_list to create_pair?
 									%% Badges?
