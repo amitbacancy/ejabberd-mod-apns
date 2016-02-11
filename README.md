@@ -1,5 +1,10 @@
 mod_apns
 ====
+
+**IMPORTANT: This is a fork from the mrDoctorWho repo to change the database used from Mnesia to MySQL.**
+
+**We are working to test that it works well.**
+
 An ejabberd module to send offline messages as PUSH notifications for iOS.
 
 > Consider using [mod_push](https://github.com/royneary/mod_push) which implements [XEP-0357](http://xmpp.org/extensions/xep-0357.html) and works with many PUSH services.
