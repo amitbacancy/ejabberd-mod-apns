@@ -105,6 +105,7 @@ message(From, To, Packet) ->
 			ToServer = To#jid.server,
 			LUser = jlib:nameprep(ToUser),
 			LServer = jlib:nameprep(ToServer),
+			FromName = get_name(From#jid.user, user, LServer),
 			Body = xml:get_path_s(Packet, [{elem, <<"body">>}, cdata]),
 
 			%% Checking subscription
@@ -115,7 +116,7 @@ message(From, To, Packet) ->
 					case Body of
 						<<>> -> ok;
 						_ ->
-							send_push_to(JTo, LServer, ToServer, chat)
+							send_push_to(JTo, FromName, LServer, ToServer, chat)
 					end;
 				_ -> ok
 			end
@@ -127,6 +128,8 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 	ToServer = FromJID#jid.server,
 	LServer = jlib:nameprep(ToServer),
 	Room = jlib:jid_to_string(RoomJID#jid{user = RoomJID#jid.user, server = RoomJID#jid.server, resource = <<"">>}),
+	RoomName = get_name(Room, muc, LServer),
+	?DEBUG("Roomname: ~p~n",[RoomName]),
 
 	_LISTUSERS = lists:map(
         	fun({_LJID, Info}) ->
@@ -146,18 +149,18 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 	
 	case binary_to_list(Type) of
 		"groupchat" ->
-			send_push_to(_OFFLINE, LServer, ToServer, groupchat),
+			send_push_to(_OFFLINE, RoomName, LServer, ToServer, groupchat),
             		Stanza;
         	true ->
             		Stanza
     	end.
 
 %% Send Push Method
-send_push_to([], _, _, _) -> ok;
-send_push_to([H|T], LServer, ToServer, Type) -> 
-	send_push_to(H, LServer, ToServer, Type),
-	send_push_to(T, LServer, ToServer, Type);
-send_push_to(UserJID, LServer, ToServer, Type) ->
+send_push_to([], _, _, _, _) -> ok;
+send_push_to([H|T], Name, LServer, ToServer, Type) -> 
+	send_push_to(H, Name, LServer, ToServer, Type),
+	send_push_to(T, Name, LServer, ToServer, Type);
+send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 	?DEBUG("Sending push to: ~p~n",[UserJID]),
 	case ejabberd_odbc:sql_query(LServer,
 					[<<"select token from apns_users where "
@@ -168,7 +171,7 @@ send_push_to(UserJID, LServer, ToServer, Type) ->
 		{selected, [<<"token">>], [[Token]]} ->
 			if
 				Token /= null ->
-					Msg = generate_push_msg(Type),
+					Msg = generate_push_msg(Type, Name),
 					Args = [{destination, binary_to_list(UserJID)}],
 					JSON = create_json(Msg, Args),
 					send_payload(ToServer, JSON, Token);
@@ -180,8 +183,38 @@ send_push_to(UserJID, LServer, ToServer, Type) ->
 			?DEBUG("No existing key for this user - maybe Android?",[])
 	end.
 
-generate_push_msg(chat) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, "default"}];
-generate_push_msg(groupchat) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, "default"}].
+generate_push_msg(chat, Name) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ binary_to_list(Name) ++ "\"]}"}, {sound, "default"}];
+generate_push_msg(groupchat, Name) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ binary_to_list(Name)  ++ "\"]}"}, {sound, "default"}].
+
+get_name(Jid, Type, LServer) ->
+	case Type of
+		muc ->
+			case ejabberd_odbc:sql_query(LServer,
+                      		[<<"select name from muc where "
+	                              "jid='">>,
+                                       Jid, <<"';">>])
+       			 of
+				{selected, [<<"name">>], [[Name]]} ->	
+					Name;
+				true ->
+					list_to_binary("default")
+			end;
+
+		user ->
+			case ejabberd_odbc:sql_query(LServer,
+                                [<<"select fn from vcard_search where "
+                                      "username='">>,
+                                       Jid, <<"';">>])
+                         of
+                                {selected, [<<"fn">>], [[Name]]} ->
+                                        Name;
+                                true ->
+                                       list_to_binary("default")
+                        end;
+		true ->
+			list_to_binary("default")
+	end.
+
 
 iq(#jid{user = User, server = Server} = From, To, #iq{type = Type, sub_el = SubEl} = IQ) ->
 	LUser = jlib:nodeprep(User),
