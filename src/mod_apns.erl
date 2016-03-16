@@ -27,9 +27,6 @@ send_payload(Host, Payload, Token) ->
 	Keyfile = gen_mod:get_module_opt(Host, ?MODULE, keyfile, fun(V) -> binary_to_list(V) end, undefined),
 	Password = gen_mod:get_module_opt(Host, ?MODULE, password, fun(V) -> binary_to_list(V) end, undefined),
 
-	?DEBUG("mod_apns: trying to send payload with these parameters: Address: ~s Port: ~s Cert: ~s Keyfile: ~s Password ~s",
-		[Address, Port, Cert, Keyfile, Password]),
-
 	case Keyfile of
                 undefined ->
 			Options = [{certfile, Cert}, {password, Password}, {mode, binary}]; %, {verify, verify_none}
@@ -130,7 +127,6 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 	ToServer = FromJID#jid.server,
 	LServer = jlib:nameprep(ToServer),
 	Room = jlib:jid_to_string(RoomJID#jid{user = RoomJID#jid.user, server = RoomJID#jid.server, resource = <<"">>}),
-	?DEBUG("new muc message on: ~s, type ~p~n",[Room, Type]),
 
 	_LISTUSERS = lists:map(
         	fun({_LJID, Info}) ->
@@ -138,7 +134,6 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
         	end,
         	dict:to_list(MUCState#state.users)
     	),
-    	?DEBUG("online members: ~p~n", [_LISTUSERS]),
 
     	_AFILLIATIONS = lists:map(
         	fun({{Uname, _Domain, _Res}, _Stuff}) ->
@@ -146,14 +141,11 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
         	end,
         	dict:to_list(MUCState#state.affiliations)
     	),
-    	?DEBUG("room members: ~p~n", [_AFILLIATIONS]),
 
     	_OFFLINE = lists:subtract(_AFILLIATIONS, _LISTUSERS),
-    	?DEBUG("offline members: ~p~n", [_OFFLINE]),
 	
 	case binary_to_list(Type) of
 		"groupchat" ->
-            		?DEBUG("Do stuff", []),
 			send_push_to(_OFFLINE, LServer, ToServer),
             		Stanza;
         	true ->
@@ -161,8 +153,12 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
     	end.
 
 %% Send Push Method
-send_push_to([H|_], LServer, ToServer) -> send_push_to(H, LServer, ToServer);
+send_push_to([], _, _) -> ok;
+send_push_to([H|T], LServer, ToServer) -> 
+	send_push_to(H, LServer, ToServer),
+	send_push_to(T, LServer, ToServer);
 send_push_to(UserJID, LServer, ToServer) ->
+	?DEBUG("Sending push to: ~p~n",[UserJID]),
 	case ejabberd_odbc:sql_query(LServer,
 					[<<"select token from apns_users where "
 						"user='">>,
@@ -170,11 +166,16 @@ send_push_to(UserJID, LServer, ToServer) ->
 	of
                                         
 		{selected, [<<"token">>], [[Token]]} ->
-			Sound = "default",
-			Msg = [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, Sound}],
-			Args = [{destination, binary_to_list(UserJID)}],
-			JSON = create_json(Msg, Args),
-			send_payload(ToServer, JSON, Token);
+			if
+				Token /= null ->
+					Sound = "default",
+					Msg = [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, Sound}],
+					Args = [{destination, binary_to_list(UserJID)}],
+					JSON = create_json(Msg, Args),
+					send_payload(ToServer, JSON, Token);
+				true ->
+					?DEBUG("No existing key for this user - maybe Android?",[])
+			end;
 
 		{selected, [<<"token">>], []} ->
 			?DEBUG("No existing key for this user - maybe Android?",[])
