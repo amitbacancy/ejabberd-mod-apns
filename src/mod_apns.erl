@@ -115,7 +115,7 @@ message(From, To, Packet) ->
 					case Body of
 						<<>> -> ok;
 						_ ->
-							send_push_to(JTo, LServer, ToServer)
+							send_push_to(JTo, LServer, ToServer, chat)
 					end;
 				_ -> ok
 			end
@@ -146,18 +146,18 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 	
 	case binary_to_list(Type) of
 		"groupchat" ->
-			send_push_to(_OFFLINE, LServer, ToServer),
+			send_push_to(_OFFLINE, LServer, ToServer, groupchat),
             		Stanza;
         	true ->
             		Stanza
     	end.
 
 %% Send Push Method
-send_push_to([], _, _) -> ok;
-send_push_to([H|T], LServer, ToServer) -> 
-	send_push_to(H, LServer, ToServer),
-	send_push_to(T, LServer, ToServer);
-send_push_to(UserJID, LServer, ToServer) ->
+send_push_to([], _, _, _) -> ok;
+send_push_to([H|T], LServer, ToServer, Type) -> 
+	send_push_to(H, LServer, ToServer, Type),
+	send_push_to(T, LServer, ToServer, Type);
+send_push_to(UserJID, LServer, ToServer, Type) ->
 	?DEBUG("Sending push to: ~p~n",[UserJID]),
 	case ejabberd_odbc:sql_query(LServer,
 					[<<"select token from apns_users where "
@@ -168,8 +168,7 @@ send_push_to(UserJID, LServer, ToServer) ->
 		{selected, [<<"token">>], [[Token]]} ->
 			if
 				Token /= null ->
-					Sound = "default",
-					Msg = [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, Sound}],
+					Msg = generate_push_msg(Type),
 					Args = [{destination, binary_to_list(UserJID)}],
 					JSON = create_json(Msg, Args),
 					send_payload(ToServer, JSON, Token);
@@ -181,6 +180,8 @@ send_push_to(UserJID, LServer, ToServer) ->
 			?DEBUG("No existing key for this user - maybe Android?",[])
 	end.
 
+generate_push_msg(chat) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, "default"}];
+generate_push_msg(groupchat) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"Nepcom\"]}"}, {sound, "default"}].
 
 iq(#jid{user = User, server = Server} = From, To, #iq{type = Type, sub_el = SubEl} = IQ) ->
 	LUser = jlib:nodeprep(User),
