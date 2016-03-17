@@ -94,7 +94,6 @@ is_numeric(L) ->
 
 message(From, To, Packet) ->
 	Type = xml:get_tag_attr_s(<<"type">>, Packet),
-	?DEBUG("Offline message ~s, type: ~s", [From, Type]),
 	case binary_to_list(Type) of 
 		"normal" -> ok;
 		"chat" ->
@@ -162,29 +161,47 @@ send_push_to([H|T], Name, LServer, ToServer, Type) ->
 	send_push_to(T, Name, LServer, ToServer, Type);
 send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 	?DEBUG("Sending push to: ~p~n",[UserJID]),
-	case ejabberd_odbc:sql_query(LServer,
-					[<<"select token from apns_users where "
-						"user='">>,
-       						UserJID, <<"';">>])
-	of
-                                        
-		{selected, [<<"token">>], [[Token]]} ->
-			if
-				Token /= null ->
-					Msg = generate_push_msg(Type, Name),
-					Args = [{destination, binary_to_list(UserJID)}],
-					JSON = create_json(Msg, Args),
-					send_payload(ToServer, JSON, Token);
-				true ->
-					?DEBUG("No existing key for this user - maybe Android?",[])
-			end;
+	Params = get_apns_params(UserJID, LServer),
+	case Params of
+		[] ->
+			?DEBUG("No existing key for this user - maybe Android?",[]);
+			
+		[null, _, _, _, _, _] ->
+			?DEBUG("No existing key for this user - maybe Android?",[]);
 
-		{selected, [<<"token">>], []} ->
-			?DEBUG("No existing key for this user - maybe Android?",[])
+		[TokenBin, MucNotBin, NotBin, MucVibBin, VibBin, SoundBin] ->
+			case Type of
+				groupchat ->
+					MucNot = binary_to_integer(MucNotBin),
+					if
+						MucNot /= 0 ->
+							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(MucVibBin), binary_to_list(SoundBin), ToServer);
+						true ->
+							ok
+					end;
+				chat ->
+					Not = binary_to_integer(NotBin),
+					if
+						Not /= 0 ->
+							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(VibBin), binary_to_list(SoundBin), ToServer);
+						true ->
+							ok
+					end;
+				true ->
+					ok
+			end
 	end.
 
-generate_push_msg(chat, Name) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ binary_to_list(Name) ++ "\"]}"}, {sound, "default"}];
-generate_push_msg(groupchat, Name) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ binary_to_list(Name)  ++ "\"]}"}, {sound, "default"}].
+send_push(UserJID, TokenBin, Type, Name, Vib, Sound, ToServer) ->
+	Msg = generate_push_msg(Type, Name, Vib, Sound),
+	Args = [{destination, binary_to_list(UserJID)}],
+	JSON = create_json(Msg, Args),
+	send_payload(ToServer, JSON, TokenBin).
+
+generate_push_msg(chat, Name, 0, Sound) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}];
+generate_push_msg(chat, Name, 1, Sound) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {sound, Sound}];
+generate_push_msg(groupchat, Name, 0, Sound) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}];
+generate_push_msg(groupchat, Name, 1, Sound) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name  ++ "\"]}"}, {sound, Sound}].
 
 get_name(Jid, Type, LServer) ->
 	case Type of
@@ -195,9 +212,9 @@ get_name(Jid, Type, LServer) ->
                                        Jid, <<"';">>])
        			 of
 				{selected, [<<"name">>], [[Name]]} ->	
-					Name;
+					binary_to_list(Name);
 				true ->
-					list_to_binary("default")
+					"default"
 			end;
 
 		user ->
@@ -207,14 +224,26 @@ get_name(Jid, Type, LServer) ->
                                        Jid, <<"';">>])
                          of
                                 {selected, [<<"fn">>], [[Name]]} ->
-                                        Name;
+                                        binary_to_list(Name);
                                 true ->
-                                       list_to_binary("default")
+                                	"default"
                         end;
 		true ->
-			list_to_binary("default")
+			"default"
 	end.
 
+get_apns_params(UserJID, LServer) ->
+	case ejabberd_odbc:sql_query(LServer,
+        	[<<"select token, notification_group_enabled, notification_enabled, vibration_group_enabled, vibration_enabled, sound_type from apns_users where "
+		"user='">>,
+		UserJID, <<"';">>])
+        of
+
+		{selected, Params, [Row]} ->
+			Row;
+		_ ->
+			[]
+	end.
 
 iq(#jid{user = User, server = Server} = From, To, #iq{type = Type, sub_el = SubEl} = IQ) ->
 	LUser = jlib:nodeprep(User),
