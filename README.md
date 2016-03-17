@@ -1,23 +1,47 @@
-mod_apns
-====
+## mod_apns
+ An ejabberd module to send offline messages as PUSH notifications for iOS.
 
-**IMPORTANT: This is a fork from the mrDoctorWho repo to change the database used from Mnesia to MySQL.**
+**IMPORTANT: Fork originally made to change the database from Mnesia to ODBC.**
 
-**We are working to test that it works well.**
+### Table of Contents
+1. [Requirements](#requirements)
+2. [Compilation](#compilation)
+3. [Configuration](#configuration)
+4. [Usage](#usage)
 
-An ejabberd module to send offline messages as PUSH notifications for iOS.
+### Requirements
 
-> Consider using [mod_push](https://github.com/royneary/mod_push) which implements [XEP-0357](http://xmpp.org/extensions/xep-0357.html) and works with many PUSH services.
+Module should be working fine with Ejabberd 14+.
 
-This module **has nothing to do** with [XEP-0357](http://xmpp.org/extensions/xep-0357.html) so far.
+#### Dependencies
 
-The main goal of this module is to send all offline messages to the registered (see [Usage](#Usage)) clients via APNS.
+This module uses other modules for some of its features.
 
-**Compilation**:
+1. *mod_muc \& mod_muc_rom:* to handle muc offline messages
+2. *mod_offline:* to handle the badge number
+
+#### Database
+
+This module needs an ODBC configuration and the next table on the database:
+
+> apns_users
+
+|   Field   | Type         | Null | Default |
+|:---------:|--------------|------|---------|
+| user      | varchar(200) |      |         |
+| token     | varchar(500) |      |         |
+| last_seen | int(11)      |      |         |
+| notification_group_enabled | tinyint(4)      |  no    | 1        |
+| notification_enabled | tinyint(4)      |  no    | 1        |
+| vibration_group_enabled | tinyint(4)      | no     |  1       |
+| vibration_enabled | tinyint(4)      | no     |  1       |
+| sound_type | varchar(200)      |  no  | 'default'  |
+
+### Compilation
 
 Because of the dependencies such as xml.hrl, logger.hrl, etc it's recommended to compile the module with ejabberd itself: put it in the *ejabberd/src* directory and run the default compiler.
 
-**Configuration**:
+### Configuration
 
 To let the module work fine with Apple Push Notification Service APIs, put these lines in the modules section:
 
@@ -30,7 +54,9 @@ mod_apns:
 ```
 You can use a *password* field in case if you have a password-protected certificate.
 
-**<a name="Usage"></a>Usage (Client to server)**:
+### Usage
+
+#### Client to server
 
 You need to send this stanza to the server over the XMPP connection, to let the server know your client token:
 ```xml
@@ -40,22 +66,11 @@ You need to send this stanza to the server over the XMPP connection, to let the 
   </register>
 </iq>
 ```
+#### Server to APNS
 
-The key will be kept in mnesia database and completely belongs to the JabberID which it was sent from.
+It works with two *loc-keys* and one *log-args*:
 
-**What it sends to APNS**:
-```json
-{
-  "aps":
-    {
-      "alert": "Hello!",
-      "sound": "default"
-    }, 
-  "source": "user@example.com",
-  "destination":"user2@example.com"
-}
 ```
-
-**Compatibility**:
-
-Module should be working fine with Ejabberd 14+.
+push_new_message
+push_new_message
+```
