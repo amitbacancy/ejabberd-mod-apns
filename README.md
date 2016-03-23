@@ -50,7 +50,6 @@ mod_apns:
   address: "gateway.push.apple.com"
   port: 2195
   certfile: "cert.pem"
-  keyfile: "key.pem"
 ```
 You can use a *password* field in case if you have a password-protected certificate.
 
@@ -72,5 +71,8 @@ It works with two *loc-keys* and one *log-args*:
 
 ```
 push_new_message
-push_new_message
+push_new_muc_message
 ```
+
+The idea is to be able to show different push messages on simple messages and on muc messages.
+The expected parameter is the name of the sender or the name of the muc room.
