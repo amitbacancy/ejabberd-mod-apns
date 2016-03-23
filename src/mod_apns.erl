@@ -106,7 +106,7 @@ message(From, To, Packet) ->
 			LServer = jlib:nameprep(ToServer),
 			FromName = get_name(From#jid.user, user, LServer),
 			Body = xml:get_path_s(Packet, [{elem, <<"body">>}, cdata]),
-
+			?DEBUG("Body: ~p~n",[Body]),
 			%% Checking subscription
 			{Subscription, _Groups} = 
 				ejabberd_hooks:run_fold(roster_get_jid_info, ToServer, {none, []}, [ToUser, ToServer, From]),
@@ -129,6 +129,8 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 	Room = jlib:jid_to_string(RoomJID#jid{user = RoomJID#jid.user, server = RoomJID#jid.server, resource = <<"">>}),
 	RoomName = get_name(Room, muc, LServer),
 	?DEBUG("Roomname: ~p~n",[RoomName]),
+	Body = xml:get_path_s(Stanza, [{elem, <<"body">>}, cdata]),
+	?DEBUG("Body: ~p~n",[Body]),
 
 	_LISTUSERS = lists:map(
         	fun({_LJID, Info}) ->
@@ -146,12 +148,23 @@ muc_message(Stanza, MUCState, RoomJID, FromJID, FromNick) ->
 
     	_OFFLINE = lists:subtract(_AFILLIATIONS, _LISTUSERS),
 	
-	case binary_to_list(Type) of
-		"groupchat" ->
-			send_push_to(_OFFLINE, RoomName, LServer, ToServer, groupchat),
-            		Stanza;
-        	true ->
-            		Stanza
+	case Body of
+		<<>> -> Stanza;
+		_ ->
+			Position = string:str(binary_to_list(Body), "\"type\":5"),
+			if
+				Position > 0 ->
+					?DEBUG("Muc event filtered",[]),
+					Stanza;
+				true ->
+					case binary_to_list(Type) of
+						"groupchat" ->
+							send_push_to(_OFFLINE, RoomName, LServer, ToServer, groupchat),
+				            		Stanza;
+				        	true ->
+				            		Stanza
+					end
+			end
     	end.
 
 %% Send Push Method
@@ -161,6 +174,12 @@ send_push_to([H|T], Name, LServer, ToServer, Type) ->
 	send_push_to(T, Name, LServer, ToServer, Type);
 send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 	?DEBUG("Sending push to: ~p~n",[UserJID]),
+	Jid = binary_to_list(UserJID),
+	JidTokens = string:tokens(Jid, "@"),
+	[User, Host] = JidTokens,
+	TUser = list_to_binary(User),
+	ModOffline = get_offlinemsg_module(LServer),
+	Badge = ModOffline:count_offline_messages(TUser, LServer),
 	Params = get_apns_params(UserJID, LServer),
 	case Params of
 		[] ->
@@ -175,7 +194,7 @@ send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 					MucNot = binary_to_integer(MucNotBin),
 					if
 						MucNot /= 0 ->
-							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(MucVibBin), binary_to_list(SoundBin), ToServer);
+							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(MucVibBin), binary_to_list(SoundBin), integer_to_list(Badge+1), ToServer);
 						true ->
 							ok
 					end;
@@ -183,7 +202,7 @@ send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 					Not = binary_to_integer(NotBin),
 					if
 						Not /= 0 ->
-							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(VibBin), binary_to_list(SoundBin), ToServer);
+							send_push(UserJID, TokenBin, Type, Name, binary_to_integer(VibBin), binary_to_list(SoundBin), integer_to_list(Badge+1), ToServer);
 						true ->
 							ok
 					end;
@@ -192,16 +211,16 @@ send_push_to(UserJID, Name, LServer, ToServer, Type) ->
 			end
 	end.
 
-send_push(UserJID, TokenBin, Type, Name, Vib, Sound, ToServer) ->
-	Msg = generate_push_msg(Type, Name, Vib, Sound),
+send_push(UserJID, TokenBin, Type, Name, Vib, Sound, Badge, ToServer) ->
+	Msg = generate_push_msg(Type, Name, Vib, Sound, Badge),
 	Args = [{destination, binary_to_list(UserJID)}],
 	JSON = create_json(Msg, Args),
 	send_payload(ToServer, JSON, TokenBin).
 
-generate_push_msg(chat, Name, 0, Sound) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}];
-generate_push_msg(chat, Name, 1, Sound) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {sound, Sound}];
-generate_push_msg(groupchat, Name, 0, Sound) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}];
-generate_push_msg(groupchat, Name, 1, Sound) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name  ++ "\"]}"}, {sound, Sound}].
+generate_push_msg(chat, Name, 0, Sound, Badge) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {badge, Badge}];
+generate_push_msg(chat, Name, 1, Sound, Badge) -> [{alert, "{\"loc-key\":\"push_new_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {badge, Badge}, {sound, Sound}];
+generate_push_msg(groupchat, Name, 0, Sound, Badge) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {badge, Badge}];
+generate_push_msg(groupchat, Name, 1, Sound, Badge) -> [{alert, "{\"loc-key\":\"push_new_muc_message\",\"loc-args\":[\"" ++ Name ++ "\"]}"}, {badge, Badge}, {sound, Sound}].
 
 get_name(Jid, Type, LServer) ->
 	case Type of
