@@ -1,8 +1,6 @@
 ## mod_apns
  An ejabberd module to send offline messages as PUSH notifications for iOS.
 
-**IMPORTANT: Fork originally made to change the database from Mnesia to ODBC.**
-
 ### Table of Contents
 1. [Requirements](#requirements)
 2. [Compilation](#compilation)
@@ -11,7 +9,14 @@
 
 ### Requirements
 
-Module should be working fine with Ejabberd 14+.
+This module should be working well with Ejabberd 14+.
+
+However this module uses the *FastXML* library, which was included since version 16.02.
+
+If you want to use it with older versions, you have two options:
+
+1. Add the *FastXML* library as a dependency of your version.
+2. Replace all the *fxml* calls to *xml* (from *p1_xml* library).
 
 #### Dependencies
 
@@ -19,12 +24,14 @@ This module uses other modules for some of its features.
 
 1. *mod_muc \& mod_muc_rom:* to handle muc offline messages
 2. *mod_offline:* to handle the badge number
+ 
+The FastXML library mentioned above is also a dependency.
 
 #### Database
 
 This module needs an ODBC configuration and the next table on the database:
 
-> apns_users
+apns_users
 
 |   Field   | Type         | Null | Default |
 |:---------:|--------------|------|---------|
@@ -39,7 +46,9 @@ This module needs an ODBC configuration and the next table on the database:
 
 ### Compilation
 
-Because of the dependencies such as xml.hrl, logger.hrl, etc it's recommended to compile the module with ejabberd itself: put it in the *ejabberd/src* directory and run the default compiler.
+Because of the dependencies, it's recommended to compile the module with ejabberd itself: put it in the *ejabberd/src* directory and run the default compiler. For example with the Make tool:
+
+> make install
 
 ### Configuration
 
@@ -51,7 +60,11 @@ mod_apns:
   port: 2195
   certfile: "cert.pem"
 ```
-You can use a *password* field in case if you have a password-protected certificate.
+You can use a password field in case you have a password-protected certificate.
+
+Also there are available the same variables for the sandbox environment with the 'sbox-' prefix. 
+
+For example the 'certfile' for the sandbox environment should be defined as 'sboxcertfile'.
 
 ### Usage
 
