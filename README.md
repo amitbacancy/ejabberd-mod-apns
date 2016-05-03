@@ -29,20 +29,34 @@ The FastXML library mentioned above is also a dependency.
 
 #### Database
 
-This module needs an ODBC configuration and the next table on the database:
+This module needs an ODBC configuration and some tables on the database:
 
-apns_users
++ **apns_users**, which contains the token and the push settings for each user
++ **muc**, which contains the name of each room
++ **vcard_search**, which contains the full name (fn) of each user
++ **much\_push\_silence**, which contains the silence settings for each user and room
+
+> apns_users
 
 |   Field   | Type         | Null | Default |
 |:---------:|--------------|------|---------|
-| user      | varchar(200) |      |         |
-| token     | varchar(500) |      |         |
+| user      | varchar |      |         |
+| token     | varchar |      |         |
 | last_seen | int(11)      |      |         |
 | notification_group_enabled | tinyint(4)      |  no    | 1        |
 | notification_enabled | tinyint(4)      |  no    | 1        |
 | vibration_group_enabled | tinyint(4)      | no     |  1       |
 | vibration_enabled | tinyint(4)      | no     |  1       |
-| sound_type | varchar(200)      |  no  | 'default'  |
+| sound_type | varchar      |  no  | 'default'  |
+
+> muc\_push\_silence
+
+|   Field   | Type    | Null | 
+|:---------:|---------|------|
+| muc_jid   | varchar |  no  |
+| user_jid  | varchar |  no  |
+
+The **muc** and **vcard_search** tables exists by default on Ejabberd.
 
 ### Compilation
 
